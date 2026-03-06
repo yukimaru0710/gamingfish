@@ -138,8 +138,8 @@
 <body>
   <div class="wrap">
     <div id="hud">
-      <div>目標: <b>鍵を3つ集めて出口へ到達</b></div>
-      <div>鍵: <span id="keys">0 / 3</span></div>
+      <div>目標: <b>鍵を4つ集めて隔離扉を解放</b></div>
+      <div>鍵: <span id="keys">0 / 4</span></div>
       <div>正気度: <span id="sanity">100</span></div>
       <div>足音: <span id="proximity">遠い</span></div>
     </div>
@@ -149,10 +149,11 @@
   <div id="overlay" class="show">
     <div id="message">
       <h1>深淵病棟</h1>
-      <p>あなたは廃病棟に閉じ込められた。懐中電灯は弱く、暗闇には何かが潜んでいる。</p>
+      <p>1999年、封鎖された第七病棟で患者が消えた夜。あなたは真相を追う記録係として潜入した。</p>
       <p>操作: <b>WASD / 矢印</b>で移動、<b>Shift</b>で走る（正気度消費）。
-      3つの鍵を拾って、青い扉から脱出せよ。</p>
-      <p class="danger">音は出せない。見つかれば、終わりだ。</p>
+      4つの隔離鍵を拾い、最深部の青い隔離扉を解放せよ。</p>
+      <p>廊下には血文字のカルテが散乱し、各病室には封鎖された記憶が残っている。</p>
+      <p class="danger">追跡者「屍看守」は気配と焦りに反応する。見つかれば、終わりだ。</p>
       <button id="startBtn">開始する</button>
     </div>
   </div>
@@ -183,8 +184,8 @@
         x: 120,
         y: 120,
         r: 20,
-        speed: 2.6,
-        sprint: 4.5,
+        speed: 2.5,
+        sprint: 4.7,
         sanity: 100,
         collected: 0
       };
@@ -192,9 +193,9 @@
       const ghost = {
         x: 2100,
         y: 240,
-        r: 26,
-        speed: 1.2,
-        rageSpeed: 2.4,
+        r: 30,
+        speed: 1.55,
+        rageSpeed: 3.25,
         rage: 0,
         visiblePulse: 0
       };
@@ -214,34 +215,65 @@
           { x: 0, y: 0, w: frame, h: world.h },
           { x: world.w - frame, y: 0, w: frame, h: world.h },
 
-          // Vertical blocks with clear gaps (avoid soft-locks)
-          { x: 360, y: 80, w: 80, h: 300 },
-          { x: 360, y: 560, w: 80, h: 600 },
-          { x: 700, y: 280, w: 80, h: 480 },
-          { x: 700, y: 940, w: 80, h: 480 },
-          { x: 1080, y: 80, w: 80, h: 360 },
-          { x: 1080, y: 640, w: 80, h: 780 },
-          { x: 1460, y: 260, w: 80, h: 500 },
-          { x: 1460, y: 940, w: 80, h: 480 },
-          { x: 1840, y: 80, w: 80, h: 360 },
-          { x: 1840, y: 620, w: 80, h: 800 },
+          // maze columns
+          { x: 280, y: 80, w: 70, h: 430 },
+          { x: 280, y: 650, w: 70, h: 760 },
+          { x: 530, y: 250, w: 70, h: 560 },
+          { x: 530, y: 980, w: 70, h: 440 },
+          { x: 780, y: 80, w: 70, h: 350 },
+          { x: 780, y: 570, w: 70, h: 850 },
+          { x: 1050, y: 220, w: 70, h: 620 },
+          { x: 1050, y: 1020, w: 70, h: 400 },
+          { x: 1320, y: 80, w: 70, h: 390 },
+          { x: 1320, y: 650, w: 70, h: 770 },
+          { x: 1590, y: 260, w: 70, h: 470 },
+          { x: 1590, y: 900, w: 70, h: 520 },
+          { x: 1860, y: 80, w: 70, h: 320 },
+          { x: 1860, y: 550, w: 70, h: 870 },
 
-          // Horizontal blocks with passages
-          { x: 440, y: 480, w: 620, h: 80 },
-          { x: 1240, y: 480, w: 520, h: 80 },
-          { x: 200, y: 860, w: 520, h: 80 },
-          { x: 900, y: 860, w: 820, h: 80 },
-          { x: 440, y: 1240, w: 780, h: 80 },
-          { x: 1400, y: 1240, w: 620, h: 80 }
+          // maze rows
+          { x: 350, y: 430, w: 540, h: 70 },
+          { x: 1000, y: 430, w: 640, h: 70 },
+          { x: 1700, y: 430, w: 410, h: 70 },
+          { x: 160, y: 820, w: 580, h: 70 },
+          { x: 880, y: 820, w: 650, h: 70 },
+          { x: 1660, y: 820, w: 560, h: 70 },
+          { x: 350, y: 1180, w: 700, h: 70 },
+          { x: 1210, y: 1180, w: 760, h: 70 }
         ];
       }
 
+      function pointBlocked(x, y, radius = 18) {
+        const c = { x, y, r: radius };
+        if (x < 120 || y < 120 || x > world.w - 120 || y > world.h - 120) return true;
+        for (const wall of world.walls) {
+          if (circleRectCollide(c, wall)) return true;
+        }
+        return false;
+      }
+
       function makeKeys() {
-        world.keys = [
-          { x: 500, y: 1260, r: 12, got: false },
-          { x: 1320, y: 180, r: 12, got: false },
-          { x: 2060, y: 1160, r: 12, got: false }
+        const candidates = [
+          { x: 210, y: 1330, r: 12, got: false },
+          { x: 980, y: 180, r: 12, got: false },
+          { x: 1420, y: 1010, r: 12, got: false },
+          { x: 2150, y: 1260, r: 12, got: false },
+          { x: 1990, y: 220, r: 12, got: false },
+          { x: 640, y: 1320, r: 12, got: false }
         ];
+
+        world.keys = [];
+        for (const k of candidates) {
+          if (!pointBlocked(k.x, k.y, 24)) world.keys.push(k);
+          if (world.keys.length >= 4) break;
+        }
+
+        while (world.keys.length < 4) {
+          const x = 160 + Math.random() * (world.w - 320);
+          const y = 160 + Math.random() * (world.h - 320);
+          if (pointBlocked(x, y, 24)) continue;
+          world.keys.push({ x, y, r: 12, got: false });
+        }
       }
 
       makeWalls();
@@ -337,15 +369,15 @@
         movePlayer((moveX / mag) * speed * dt * 60, (moveY / mag) * speed * dt * 60);
 
         if (sprinting) {
-          player.sanity -= 15 * dt;
-          ghost.rage = Math.min(1, ghost.rage + dt * 0.8);
+          player.sanity -= 19 * dt;
+          ghost.rage = Math.min(1, ghost.rage + dt * 1.15);
         } else {
-          player.sanity += 8 * dt;
-          ghost.rage = Math.max(0, ghost.rage - dt * 0.35);
+          player.sanity += 6 * dt;
+          ghost.rage = Math.max(0, ghost.rage - dt * 0.22);
         }
 
         if (canSeeGhost()) {
-          player.sanity -= 24 * dt;
+          player.sanity -= 30 * dt;
           ghost.visiblePulse = 1;
         }
         ghost.visiblePulse = Math.max(0, ghost.visiblePulse - dt * 2.2);
@@ -396,14 +428,14 @@
         jumpscare.classList.add('show');
         setTimeout(() => jumpscare.classList.remove('show'), 220);
         showPanel('GAME OVER',
-          '廃病棟に飲み込まれた。暗闇は、もうあなたを離さない。<br><br>Rキーでリトライ');
+          '屍看守に記録帳を奪われた。あなたの名は次のカルテに赤字で刻まれる。<br><br>Rキーでリトライ');
       }
 
       function triggerWin() {
         win = true;
         running = false;
         showPanel('脱出成功',
-          '扉が開き、冷たい夜気が流れ込む。<br>だが背後ではまだ、足音が止まない…<br><br>Rキーで再挑戦');
+          '隔離扉の外へ転がり出た瞬間、記録帳の最後の頁が燃え上がる。<br>「第七病棟の主治医は、あなた自身だった」<br><br>Rキーで再挑戦');
       }
 
       function showPanel(title, body) {
@@ -439,12 +471,14 @@
           '.1..1.'
         ],
         ghost: [
-          '.1111.',
-          '122221',
-          '123321',
-          '122221',
-          '144441',
-          '.1..1.'
+          '..1111..',
+          '.1222221.',
+          '123333321',
+          '123444321',
+          '125454521',
+          '125666521',
+          '.1266621.',
+          '..1....1.'
         ],
         key: [
           '..22..',
@@ -458,7 +492,7 @@
 
       const spritePalettes = {
         player: { '1': '#d8f2ff', '2': '#a8d8ff', '3': '#4ba6ff' },
-        ghost: { '1': '#f2f2f2', '2': '#d6d6d6', '3': '#7e0000', '4': '#b40000' },
+        ghost: { '1': '#d9d9d9', '2': '#bfbfbf', '3': '#732222', '4': '#2f0000', '5': '#b10000', '6': '#ff5858' },
         key: { '2': '#ffe36d', '3': '#f6bd2b' }
       };
 
@@ -539,7 +573,17 @@
 
         // Ghost (pixel sprite)
         const ghostAlpha = 0.45 + ghost.visiblePulse * 0.55;
-        drawSprite(ghost.x, ghost.y, 7, sprites.ghost, spritePalettes.ghost, ghostAlpha);
+        drawSprite(ghost.x, ghost.y, 8, sprites.ghost, spritePalettes.ghost, ghostAlpha);
+
+        const tendril = 8 + Math.sin(time * 10 + ghost.x * 0.05) * 5;
+        ctx.strokeStyle = `rgba(120,0,0,${0.28 + ghost.visiblePulse * 0.35})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(ghost.x - 26, ghost.y + 12);
+        ctx.lineTo(ghost.x - 44 - tendril, ghost.y + 26);
+        ctx.moveTo(ghost.x + 24, ghost.y + 10);
+        ctx.lineTo(ghost.x + 42 + tendril, ghost.y + 32);
+        ctx.stroke();
 
         // Player (pixel sprite)
         drawSprite(player.x, player.y, 7, sprites.player, spritePalettes.player, 1);
