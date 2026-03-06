@@ -208,23 +208,32 @@
 
       function makeWalls() {
         const frame = 80;
-        world.walls.push(
+        world.walls = [
           { x: 0, y: 0, w: world.w, h: frame },
           { x: 0, y: world.h - frame, w: world.w, h: frame },
           { x: 0, y: 0, w: frame, h: world.h },
           { x: world.w - frame, y: 0, w: frame, h: world.h },
 
-          { x: 280, y: 80, w: 80, h: 1050 },
-          { x: 560, y: 370, w: 80, h: 1050 },
-          { x: 860, y: 80, w: 80, h: 1150 },
-          { x: 1170, y: 260, w: 80, h: 1170 },
-          { x: 1480, y: 80, w: 80, h: 1040 },
-          { x: 1790, y: 380, w: 80, h: 1040 },
-          { x: 370, y: 1060, w: 840, h: 80 },
-          { x: 640, y: 310, w: 890, h: 80 },
-          { x: 940, y: 1240, w: 900, h: 80 },
-          { x: 1560, y: 560, w: 700, h: 80 }
-        );
+          // Vertical blocks with clear gaps (avoid soft-locks)
+          { x: 360, y: 80, w: 80, h: 300 },
+          { x: 360, y: 560, w: 80, h: 600 },
+          { x: 700, y: 280, w: 80, h: 480 },
+          { x: 700, y: 940, w: 80, h: 480 },
+          { x: 1080, y: 80, w: 80, h: 360 },
+          { x: 1080, y: 640, w: 80, h: 780 },
+          { x: 1460, y: 260, w: 80, h: 500 },
+          { x: 1460, y: 940, w: 80, h: 480 },
+          { x: 1840, y: 80, w: 80, h: 360 },
+          { x: 1840, y: 620, w: 80, h: 800 },
+
+          // Horizontal blocks with passages
+          { x: 440, y: 480, w: 620, h: 80 },
+          { x: 1240, y: 480, w: 520, h: 80 },
+          { x: 200, y: 860, w: 520, h: 80 },
+          { x: 900, y: 860, w: 820, h: 80 },
+          { x: 440, y: 1240, w: 780, h: 80 },
+          { x: 1400, y: 1240, w: 620, h: 80 }
+        ];
       }
 
       function makeKeys() {
@@ -250,20 +259,47 @@
         return dx * dx + dy * dy < c.r * c.r;
       }
 
-      function movePlayer(dx, dy) {
-        player.x += dx;
-        for (const wall of world.walls) {
-          if (circleRectCollide(player, wall)) {
-            player.x -= dx;
-            break;
+      function resolveWallOverlap(circle) {
+        for (let iter = 0; iter < 4; iter++) {
+          let collided = false;
+          for (const wall of world.walls) {
+            if (!circleRectCollide(circle, wall)) continue;
+
+            const closestX = Math.max(wall.x, Math.min(circle.x, wall.x + wall.w));
+            const closestY = Math.max(wall.y, Math.min(circle.y, wall.y + wall.h));
+            let dx = circle.x - closestX;
+            let dy = circle.y - closestY;
+            let dist = Math.hypot(dx, dy);
+
+            if (dist < 0.001) {
+              const centerX = wall.x + wall.w / 2;
+              const centerY = wall.y + wall.h / 2;
+              dx = circle.x - centerX;
+              dy = circle.y - centerY;
+              if (Math.abs(dx) > Math.abs(dy)) dy = 0;
+              else dx = 0;
+              dist = Math.hypot(dx, dy) || 1;
+            }
+
+            const push = circle.r - dist + 0.2;
+            circle.x += (dx / dist) * push;
+            circle.y += (dy / dist) * push;
+            collided = true;
           }
+          if (!collided) break;
         }
-        player.y += dy;
-        for (const wall of world.walls) {
-          if (circleRectCollide(player, wall)) {
-            player.y -= dy;
-            break;
-          }
+      }
+
+      function movePlayer(dx, dy) {
+        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 8));
+        const stepX = dx / steps;
+        const stepY = dy / steps;
+
+        for (let i = 0; i < steps; i++) {
+          player.x += stepX;
+          resolveWallOverlap(player);
+          player.y += stepY;
+          resolveWallOverlap(player);
         }
       }
 
@@ -323,14 +359,7 @@
         ghost.x += (gx / gd) * gs;
         ghost.y += (gy / gd) * gs;
 
-        for (const wall of world.walls) {
-          if (circleRectCollide(ghost, wall)) {
-            ghost.x -= (gx / gd) * gs;
-            ghost.y -= (gy / gd) * gs;
-            ghost.x += (Math.random() - 0.5) * 5;
-            ghost.y += (Math.random() - 0.5) * 5;
-          }
-        }
+        resolveWallOverlap(ghost);
 
         for (const k of world.keys) {
           if (!k.got && distance(player, k) < player.r + k.r + 3) {
@@ -400,6 +429,58 @@
         overlay.classList.remove('show');
       }
 
+      const sprites = {
+        player: [
+          '..11..',
+          '.1221.',
+          '122221',
+          '123321',
+          '.1331.',
+          '.1..1.'
+        ],
+        ghost: [
+          '.1111.',
+          '122221',
+          '123321',
+          '122221',
+          '144441',
+          '.1..1.'
+        ],
+        key: [
+          '..22..',
+          '.2332.',
+          '..22..',
+          '..2...',
+          '.2222.',
+          '..2.2.'
+        ]
+      };
+
+      const spritePalettes = {
+        player: { '1': '#d8f2ff', '2': '#a8d8ff', '3': '#4ba6ff' },
+        ghost: { '1': '#f2f2f2', '2': '#d6d6d6', '3': '#7e0000', '4': '#b40000' },
+        key: { '2': '#ffe36d', '3': '#f6bd2b' }
+      };
+
+      function drawSprite(cx, cy, pixelSize, pattern, palette, alpha = 1) {
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        const h = pattern.length;
+        const w = pattern[0].length;
+        const ox = cx - (w * pixelSize) / 2;
+        const oy = cy - (h * pixelSize) / 2;
+
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const code = pattern[y][x];
+            if (code === '.') continue;
+            ctx.fillStyle = palette[code] || '#fff';
+            ctx.fillRect(ox + x * pixelSize, oy + y * pixelSize, pixelSize, pixelSize);
+          }
+        }
+        ctx.restore();
+      }
+
       function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -434,41 +515,34 @@
         ctx.lineWidth = 3;
         ctx.strokeRect(world.exit.x, world.exit.y, world.exit.w, world.exit.h);
 
-        // Walls
-        ctx.fillStyle = '#252525';
-        for (const w of world.walls) ctx.fillRect(w.x, w.y, w.w, w.h);
-
-        // Keys
-        for (const k of world.keys) {
-          if (k.got) continue;
-          const pulse = 0.7 + Math.sin(time * 6 + k.x) * 0.3;
-          ctx.fillStyle = `rgba(255,223,80,${pulse})`;
-          ctx.beginPath();
-          ctx.arc(k.x, k.y, k.r + 4, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#ffd84a';
-          ctx.beginPath();
-          ctx.arc(k.x, k.y, k.r, 0, Math.PI * 2);
-          ctx.fill();
+        // Walls (pixel-style tiles)
+        for (const w of world.walls) {
+          ctx.fillStyle = '#242424';
+          ctx.fillRect(w.x, w.y, w.w, w.h);
+          for (let yy = w.y; yy < w.y + w.h; yy += 16) {
+            for (let xx = w.x; xx < w.x + w.w; xx += 16) {
+              const tone = ((xx / 16 + yy / 16) % 2 === 0) ? '#2c2c2c' : '#303030';
+              ctx.fillStyle = tone;
+              ctx.fillRect(xx + 1, yy + 1, 14, 14);
+            }
+          }
         }
 
-        // Ghost
-        const ghostAlpha = 0.4 + ghost.visiblePulse * 0.6;
-        ctx.fillStyle = `rgba(255, 238, 238, ${ghostAlpha})`;
-        ctx.beginPath();
-        ctx.arc(ghost.x, ghost.y, ghost.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = `rgba(120,0,0,${0.7 + ghost.visiblePulse * 0.3})`;
-        ctx.beginPath();
-        ctx.arc(ghost.x - 8, ghost.y - 4, 4, 0, Math.PI * 2);
-        ctx.arc(ghost.x + 8, ghost.y - 4, 4, 0, Math.PI * 2);
-        ctx.fill();
+        // Keys (pixel sprite)
+        for (const k of world.keys) {
+          if (k.got) continue;
+          const pulse = 0.68 + Math.sin(time * 7 + k.x) * 0.22;
+          ctx.fillStyle = `rgba(255,223,80,${pulse * 0.45})`;
+          ctx.fillRect(k.x - 18, k.y - 18, 36, 36);
+          drawSprite(k.x, k.y, 4, sprites.key, spritePalettes.key, 0.96);
+        }
 
-        // Player
-        ctx.fillStyle = '#dbf4ff';
-        ctx.beginPath();
-        ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-        ctx.fill();
+        // Ghost (pixel sprite)
+        const ghostAlpha = 0.45 + ghost.visiblePulse * 0.55;
+        drawSprite(ghost.x, ghost.y, 7, sprites.ghost, spritePalettes.ghost, ghostAlpha);
+
+        // Player (pixel sprite)
+        drawSprite(player.x, player.y, 7, sprites.player, spritePalettes.player, 1);
 
         ctx.restore();
 
