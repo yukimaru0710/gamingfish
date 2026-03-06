@@ -546,43 +546,12 @@
 
         ctx.restore();
 
-        // Darkness + flashlight
-        const px = player.x - camX;
-        const py = player.y - camY;
-        const flicker = 0.92 + Math.sin(time * 22) * 0.04 + (Math.random() - 0.5) * 0.03;
-        const lightRadius = (300 + player.sanity * 1.6) * flicker;
-
-        ctx.fillStyle = `rgba(0,0,0,${0.48 + (1 - flicker) * 0.18})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.globalCompositeOperation = 'destination-out';
-        const grad = ctx.createRadialGradient(px, py, 8, px, py, lightRadius);
-        grad.addColorStop(0, 'rgba(0,0,0,0.95)');
-        grad.addColorStop(0.45, 'rgba(0,0,0,0.45)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(px, py, lightRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
-
-        // Ambient lift (subtle darkness)
-        ctx.fillStyle = 'rgba(36, 46, 68, 0.12)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Vignette + static
-        const vignette = ctx.createRadialGradient(
-          canvas.width / 2, canvas.height / 2, 200,
-          canvas.width / 2, canvas.height / 2, canvas.width / 1.2
-        );
-        vignette.addColorStop(0, 'rgba(0,0,0,0)');
-        vignette.addColorStop(1, 'rgba(0,0,0,0.58)');
-        ctx.fillStyle = vignette;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        for (let i = 0; i < 40; i++) {
+        // Brightness MAX mode
+        // Requested temporary setting: disable darkness mask/flicker/vignette.
+        // Keep only a very light scanline noise so the scene is fully visible.
+        for (let i = 0; i < 18; i++) {
           const y = (Math.sin(time * 90 + i * 13.1) * 0.5 + 0.5) * canvas.height;
-          ctx.fillStyle = `rgba(255,255,255,${0.008 + Math.random() * 0.015})`;
+          ctx.fillStyle = 'rgba(255,255,255,0.01)';
           ctx.fillRect(0, y, canvas.width, 1);
         }
 
