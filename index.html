@@ -475,15 +475,16 @@
         // Darkness + flashlight
         const px = player.x - camX;
         const py = player.y - camY;
-        const lightRadius = 240 + player.sanity * 1.8;
+        const flicker = 0.92 + Math.sin(time * 22) * 0.04 + (Math.random() - 0.5) * 0.03;
+        const lightRadius = (300 + player.sanity * 1.6) * flicker;
 
-        ctx.fillStyle = 'rgba(0,0,0,0.72)';
+        ctx.fillStyle = `rgba(0,0,0,${0.48 + (1 - flicker) * 0.18})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.globalCompositeOperation = 'destination-out';
         const grad = ctx.createRadialGradient(px, py, 8, px, py, lightRadius);
-        grad.addColorStop(0, 'rgba(0,0,0,0.98)');
-        grad.addColorStop(0.4, 'rgba(0,0,0,0.55)');
+        grad.addColorStop(0, 'rgba(0,0,0,0.95)');
+        grad.addColorStop(0.45, 'rgba(0,0,0,0.45)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = grad;
         ctx.beginPath();
@@ -491,8 +492,8 @@
         ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
 
-        // Ambient lift (too dark prevention)
-        ctx.fillStyle = 'rgba(30, 40, 60, 0.08)';
+        // Ambient lift (subtle darkness)
+        ctx.fillStyle = 'rgba(36, 46, 68, 0.12)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Vignette + static
