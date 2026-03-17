@@ -222,15 +222,15 @@
         y: 120,
         r: 20,
         speed: 2.5,
-        sprint: 4.7,
+        sprint: 5.6,
         sanity: 100,
         collected: 0
       };
 
       const ghostDefaults = {
         r: 30,
-        speed: 1.55,
-        rageSpeed: 3.25
+        speed: 1.25,
+        rageSpeed: 2.55
       };
       let ghosts = [];
 
@@ -336,6 +336,10 @@
           r: ghostDefaults.r,
           speed: ghostDefaults.speed + speedBias,
           rageSpeed: ghostDefaults.rageSpeed + speedBias * 1.1,
+          detectRange: 430 + Math.random() * 120,
+          wanderX: x,
+          wanderY: y,
+          wanderAt: 0,
           rage: 0,
           visiblePulse: 0
         };
@@ -348,14 +352,14 @@
       function spawnAdditionalGhost() {
         for (let i = 0; i < 32; i++) {
           const ang = Math.random() * Math.PI * 2;
-          const dist = 320 + Math.random() * 280;
+          const dist = 560 + Math.random() * 420;
           const x = Math.max(120, Math.min(world.w - 120, player.x + Math.cos(ang) * dist));
           const y = Math.max(120, Math.min(world.h - 120, player.y + Math.sin(ang) * dist));
-          if (distance({ x, y }, player) < 260) continue;
-          ghosts.push(createGhost(x, y, Math.min(0.6, player.collected * 0.08)));
+          if (distance({ x, y }, player) < 480) continue;
+          ghosts.push(createGhost(x, y, Math.min(0.4, player.collected * 0.05)));
           return;
         }
-        ghosts.push(createGhost(world.w - 180, world.h - 180, Math.min(0.6, player.collected * 0.08)));
+        ghosts.push(createGhost(world.w - 180, world.h - 180, Math.min(0.4, player.collected * 0.05)));
       }
 
       function formatTime(ms) {
@@ -473,22 +477,24 @@
         }
       }
 
+      function hasWallBetween(a, b) {
+        const d = distance(a, b);
+        const steps = Math.max(2, Math.floor(d / 12));
+        for (let i = 1; i < steps; i++) {
+          const t = i / steps;
+          const sx = a.x + (b.x - a.x) * t;
+          const sy = a.y + (b.y - a.y) * t;
+          for (const w of world.walls) {
+            if (sx >= w.x && sx <= w.x + w.w && sy >= w.y && sy <= w.y + w.h) return true;
+          }
+        }
+        return false;
+      }
+
       function canSeeGhost(g) {
         const d = distance(player, g);
         if (d > 230) return false;
-
-        const steps = Math.floor(d / 12);
-        for (let i = 1; i < steps; i++) {
-          const t = i / steps;
-          const sx = player.x + (g.x - player.x) * t;
-          const sy = player.y + (g.y - player.y) * t;
-          for (const w of world.walls) {
-            if (sx >= w.x && sx <= w.x + w.w && sy >= w.y && sy <= w.y + w.h) {
-              return false;
-            }
-          }
-        }
-        return true;
+        return !hasWallBetween(player, g);
       }
 
       function update(dt) {
@@ -512,12 +518,12 @@
           player.sanity += 6 * dt;
         }
 
-        // Ghost speed no longer depends on Shift sprint input.
-        // Rage rises only when ghosts are close to the player, then naturally decays.
+        // Ghost behavior: detect player in range, otherwise wander inside map.
         for (const g of ghosts) {
-          const near = distance(player, g) < 320;
-          if (near) g.rage = Math.min(1, g.rage + dt * 0.55);
-          else g.rage = Math.max(0, g.rage - dt * 0.22);
+          const distToPlayer = distance(player, g);
+          const detected = distToPlayer <= g.detectRange && !hasWallBetween(g, player);
+          if (detected) g.rage = Math.min(1, g.rage + dt * 0.5);
+          else g.rage = Math.max(0, g.rage - dt * 0.2);
         }
 
         let sawAny = false;
@@ -533,12 +539,31 @@
         player.sanity = Math.max(0, Math.min(100, player.sanity));
 
         for (const g of ghosts) {
-          const gx = player.x - g.x;
-          const gy = player.y - g.y;
-          const gd = Math.hypot(gx, gy) || 1;
+          const distToPlayer = distance(player, g);
+          const detected = distToPlayer <= g.detectRange && !hasWallBetween(g, player);
           const gs = (g.speed + (g.rageSpeed - g.speed) * g.rage) * dt * 60;
-          g.x += (gx / gd) * gs;
-          g.y += (gy / gd) * gs;
+
+          if (detected) {
+            const gx = player.x - g.x;
+            const gy = player.y - g.y;
+            const gd = Math.hypot(gx, gy) || 1;
+            g.x += (gx / gd) * gs;
+            g.y += (gy / gd) * gs;
+          } else {
+            if (performance.now() >= g.wanderAt || distance(g, { x: g.wanderX, y: g.wanderY }) < 30) {
+              g.wanderX = 120 + Math.random() * (world.w - 240);
+              g.wanderY = 120 + Math.random() * (world.h - 240);
+              g.wanderAt = performance.now() + 1400 + Math.random() * 2200;
+            }
+            const wx = g.wanderX - g.x;
+            const wy = g.wanderY - g.y;
+            const wd = Math.hypot(wx, wy) || 1;
+            g.x += (wx / wd) * (gs * 0.52);
+            g.y += (wy / wd) * (gs * 0.52);
+          }
+
+          g.x = Math.max(100, Math.min(world.w - 100, g.x));
+          g.y = Math.max(100, Math.min(world.h - 100, g.y));
         }
 
         for (const k of world.keys) {
