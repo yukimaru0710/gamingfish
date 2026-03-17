@@ -142,6 +142,7 @@
       <div>鍵: <span id="keys">0 / 4</span></div>
       <div>正気度: <span id="sanity">100</span></div>
       <div>足音: <span id="proximity">遠い</span></div>
+      <div id="timerWrap" style="display:none;">RTA: <span id="timer">00:00.00</span></div>
     </div>
     <canvas id="game" width="1280" height="720"></canvas>
   </div>
@@ -167,6 +168,8 @@
       const keysEl = document.getElementById('keys');
       const sanityEl = document.getElementById('sanity');
       const proximityEl = document.getElementById('proximity');
+      const timerWrapEl = document.getElementById('timerWrap');
+      const timerEl = document.getElementById('timer');
       const overlay = document.getElementById('overlay');
       const message = document.getElementById('message');
       const jumpscare = document.getElementById('jumpscare');
@@ -190,17 +193,17 @@
         collected: 0
       };
 
-      const ghost = {
-        x: 2100,
-        y: 240,
+      const ghostDefaults = {
         r: 30,
         speed: 1.55,
-        rageSpeed: 3.25,
-        rage: 0,
-        visiblePulse: 0
+        rageSpeed: 3.25
       };
+      let ghosts = [];
 
       let running = false;
+      let showTimer = false;
+      let timerStartedAt = 0;
+      let puzzleLock = false;
       let gameOver = false;
       let win = false;
       const pressed = new Set();
@@ -292,6 +295,69 @@
       makeWalls();
       makeKeys();
 
+      function createGhost(x, y, speedBias = 0) {
+        return {
+          x,
+          y,
+          r: ghostDefaults.r,
+          speed: ghostDefaults.speed + speedBias,
+          rageSpeed: ghostDefaults.rageSpeed + speedBias * 1.1,
+          rage: 0,
+          visiblePulse: 0
+        };
+      }
+
+      function initGhosts() {
+        ghosts = [createGhost(2100, 240, 0)];
+      }
+
+      function spawnAdditionalGhost() {
+        for (let i = 0; i < 32; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const dist = 320 + Math.random() * 280;
+          const x = Math.max(120, Math.min(world.w - 120, player.x + Math.cos(ang) * dist));
+          const y = Math.max(120, Math.min(world.h - 120, player.y + Math.sin(ang) * dist));
+          if (distance({ x, y }, player) < 260) continue;
+          ghosts.push(createGhost(x, y, Math.min(0.6, player.collected * 0.08)));
+          return;
+        }
+        ghosts.push(createGhost(world.w - 180, world.h - 180, Math.min(0.6, player.collected * 0.08)));
+      }
+
+      function formatTime(ms) {
+        const total = Math.max(0, ms);
+        const m = Math.floor(total / 60000);
+        const s = Math.floor((total % 60000) / 1000);
+        const cs = Math.floor((total % 1000) / 10);
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+      }
+
+      function trySolveKeyPuzzle(keyObj) {
+        puzzleLock = true;
+        running = false;
+        const a = 2 + Math.floor(Math.random() * 8);
+        const b = 2 + Math.floor(Math.random() * 8);
+        const c = 1 + Math.floor(Math.random() * 6);
+        const answer = a * b - c;
+        const text = `隔離鍵の封印: ${a} × ${b} - ${c} = ?`;
+        const input = window.prompt(text);
+
+        if (input !== null && Number(input) === answer) {
+          keyObj.got = true;
+          player.collected++;
+          shake = 10;
+          spawnAdditionalGhost();
+        } else if (input !== null) {
+          player.sanity = Math.max(0, player.sanity - 18);
+          shake = 6;
+        }
+
+        running = true;
+        puzzleLock = false;
+      }
+
+      initGhosts();
+
       function distance(a, b) {
         return Math.hypot(a.x - b.x, a.y - b.y);
       }
@@ -348,15 +414,15 @@
         }
       }
 
-      function canSeeGhost() {
-        const d = distance(player, ghost);
+      function canSeeGhost(g) {
+        const d = distance(player, g);
         if (d > 230) return false;
 
         const steps = Math.floor(d / 12);
         for (let i = 1; i < steps; i++) {
           const t = i / steps;
-          const sx = player.x + (ghost.x - player.x) * t;
-          const sy = player.y + (ghost.y - player.y) * t;
+          const sx = player.x + (g.x - player.x) * t;
+          const sy = player.y + (g.y - player.y) * t;
           for (const w of world.walls) {
             if (sx >= w.x && sx <= w.x + w.w && sy >= w.y && sy <= w.y + w.h) {
               return false;
@@ -367,7 +433,7 @@
       }
 
       function update(dt) {
-        if (!running || gameOver || win) return;
+        if (!running || gameOver || win || puzzleLock) return;
 
         time += dt;
         const moveX = (pressed.has('d') || pressed.has('arrowright') ? 1 : 0)
@@ -383,38 +449,42 @@
 
         if (sprinting) {
           player.sanity -= 19 * dt;
-          ghost.rage = Math.min(1, ghost.rage + dt * 1.15);
+          for (const g of ghosts) g.rage = Math.min(1, g.rage + dt * 1.15);
         } else {
           player.sanity += 6 * dt;
-          ghost.rage = Math.max(0, ghost.rage - dt * 0.22);
+          for (const g of ghosts) g.rage = Math.max(0, g.rage - dt * 0.22);
         }
 
-        if (canSeeGhost()) {
-          player.sanity -= 30 * dt;
-          ghost.visiblePulse = 1;
+        let sawAny = false;
+        for (const g of ghosts) {
+          if (canSeeGhost(g)) {
+            sawAny = true;
+            g.visiblePulse = 1;
+          }
+          g.visiblePulse = Math.max(0, g.visiblePulse - dt * 2.2);
         }
-        ghost.visiblePulse = Math.max(0, ghost.visiblePulse - dt * 2.2);
+        if (sawAny) player.sanity -= 30 * dt;
 
         player.sanity = Math.max(0, Math.min(100, player.sanity));
 
-        const gx = player.x - ghost.x;
-        const gy = player.y - ghost.y;
-        const gd = Math.hypot(gx, gy) || 1;
-        const gs = (ghost.speed + (ghost.rageSpeed - ghost.speed) * ghost.rage) * dt * 60;
-        ghost.x += (gx / gd) * gs;
-        ghost.y += (gy / gd) * gs;
-
-        resolveWallOverlap(ghost);
+        for (const g of ghosts) {
+          const gx = player.x - g.x;
+          const gy = player.y - g.y;
+          const gd = Math.hypot(gx, gy) || 1;
+          const gs = (g.speed + (g.rageSpeed - g.speed) * g.rage) * dt * 60;
+          g.x += (gx / gd) * gs;
+          g.y += (gy / gd) * gs;
+        }
 
         for (const k of world.keys) {
           if (!k.got && distance(player, k) < player.r + k.r + 3) {
-            k.got = true;
-            player.collected++;
-            shake = 8;
+            trySolveKeyPuzzle(k);
+            break;
           }
         }
 
-        if (distance(player, ghost) < player.r + ghost.r + 4 || player.sanity <= 0) {
+        const touchGhost = ghosts.some((g) => distance(player, g) < player.r + g.r + 4);
+        if (touchGhost || player.sanity <= 0) {
           triggerGameOver();
         }
 
@@ -428,7 +498,7 @@
         keysEl.textContent = `${player.collected} / ${world.keys.length}`;
         sanityEl.textContent = Math.round(player.sanity);
 
-        const pd = distance(player, ghost);
+        const pd = ghosts.length ? Math.min(...ghosts.map((g) => distance(player, g))) : 9999;
         proximityEl.textContent = pd < 130 ? '背後にいる' : pd < 260 ? '非常に近い' : pd < 420 ? '近い' : pd < 650 ? '中距離' : '遠い';
         if (pd < 260) proximityEl.className = 'danger';
         else if (pd < 450) proximityEl.className = '';
@@ -463,14 +533,13 @@
         player.y = 120;
         player.sanity = 100;
         player.collected = 0;
-        ghost.x = 2100;
-        ghost.y = 240;
-        ghost.rage = 0;
-        ghost.visiblePulse = 0;
         makeKeys();
+        initGhosts();
         gameOver = false;
         win = false;
         running = true;
+        puzzleLock = false;
+        timerStartedAt = performance.now();
         overlay.classList.remove('show');
       }
 
@@ -584,19 +653,21 @@
           drawSprite(k.x, k.y, 4, sprites.key, spritePalettes.key, 0.96);
         }
 
-        // Ghost (pixel sprite)
-        const ghostAlpha = 0.45 + ghost.visiblePulse * 0.55;
-        drawSprite(ghost.x, ghost.y, 8, sprites.ghost, spritePalettes.ghost, ghostAlpha);
+        // Ghosts (pixel sprite)
+        ghosts.forEach((g, idx) => {
+          const ghostAlpha = 0.45 + g.visiblePulse * 0.55;
+          drawSprite(g.x, g.y, 8, sprites.ghost, spritePalettes.ghost, ghostAlpha);
 
-        const tendril = 8 + Math.sin(time * 10 + ghost.x * 0.05) * 5;
-        ctx.strokeStyle = `rgba(120,0,0,${0.28 + ghost.visiblePulse * 0.35})`;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(ghost.x - 26, ghost.y + 12);
-        ctx.lineTo(ghost.x - 44 - tendril, ghost.y + 26);
-        ctx.moveTo(ghost.x + 24, ghost.y + 10);
-        ctx.lineTo(ghost.x + 42 + tendril, ghost.y + 32);
-        ctx.stroke();
+          const tendril = 8 + Math.sin(time * 10 + g.x * 0.05 + idx) * 5;
+          ctx.strokeStyle = `rgba(120,0,0,${0.28 + g.visiblePulse * 0.35})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(g.x - 26, g.y + 12);
+          ctx.lineTo(g.x - 44 - tendril, g.y + 26);
+          ctx.moveTo(g.x + 24, g.y + 10);
+          ctx.lineTo(g.x + 42 + tendril, g.y + 32);
+          ctx.stroke();
+        });
 
         // Player (pixel sprite)
         drawSprite(player.x, player.y, 7, sprites.player, spritePalettes.player, 1);
@@ -620,6 +691,7 @@
         const dt = Math.min(0.033, (now - last) / 1000);
         last = now;
         update(dt);
+        if (showTimer) timerEl.textContent = formatTime(performance.now() - timerStartedAt);
         draw();
         requestAnimationFrame(loop);
       }
@@ -628,12 +700,17 @@
       window.addEventListener('keydown', (e) => {
         pressed.add(e.key.toLowerCase());
         if (e.key.toLowerCase() === 'r') reset();
+        if (e.key.toLowerCase() === 't') {
+          showTimer = !showTimer;
+          timerWrapEl.style.display = showTimer ? 'block' : 'none';
+        }
       });
       window.addEventListener('keyup', (e) => pressed.delete(e.key.toLowerCase()));
 
       startBtn.addEventListener('click', () => {
         overlay.classList.remove('show');
         running = true;
+        timerStartedAt = performance.now();
       });
     })();
   </script>
