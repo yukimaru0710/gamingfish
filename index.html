@@ -112,6 +112,24 @@
       opacity: 1;
     }
 
+    #puzzleOverlay {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      width: min(92vw, 360px);
+      background: rgba(0,0,0,0.86);
+      border: 1px solid #3a3a3a;
+      border-radius: 10px;
+      padding: 12px;
+      display: none;
+      z-index: 20;
+    }
+    #puzzleOverlay.show { display: block; }
+    #puzzleOverlay .seq { color: #ffd56b; letter-spacing: .2em; margin: 6px 0; }
+    #puzzleOverlay .choices { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 8px; }
+    #puzzleOverlay button { padding: 8px; border-radius: 6px; border: 1px solid #555; background:#191919; color:#eee; cursor:pointer; }
+    #puzzleOverlay .meta { display:flex; justify-content:space-between; font-size:12px; opacity:.9; margin-top:6px; }
+
     #jumpscare {
       position: fixed;
       inset: 0;
@@ -161,6 +179,16 @@
 
   <div id="jumpscare">見 つ け た</div>
 
+  <div id="puzzleOverlay">
+    <div id="puzzleTitle">鍵の封印解除</div>
+    <div id="puzzleDesc">表示順に記号を押して封印を解除せよ。</div>
+    <div class="seq" id="puzzleSeq"></div>
+    <div class="choices" id="puzzleChoices"></div>
+    <div class="meta"><span id="puzzleProgress">0 / 0</span><span id="puzzleTime">0.0s</span></div>
+    <button id="puzzleCancel">中断 (Esc)</button>
+  </div>
+
+
   <script>
     (() => {
       const canvas = document.getElementById('game');
@@ -174,6 +202,12 @@
       const message = document.getElementById('message');
       const jumpscare = document.getElementById('jumpscare');
       const startBtn = document.getElementById('startBtn');
+      const puzzleOverlay = document.getElementById('puzzleOverlay');
+      const puzzleSeqEl = document.getElementById('puzzleSeq');
+      const puzzleChoicesEl = document.getElementById('puzzleChoices');
+      const puzzleProgressEl = document.getElementById('puzzleProgress');
+      const puzzleTimeEl = document.getElementById('puzzleTime');
+      const puzzleCancelBtn = document.getElementById('puzzleCancel');
 
       const world = {
         w: 2400,
@@ -203,7 +237,7 @@
       let running = false;
       let showTimer = false;
       let timerStartedAt = 0;
-      let puzzleLock = false;
+      const puzzleState = { active: false, key: null, sequence: [], progress: 0, endAt: 0 };
       let gameOver = false;
       let win = false;
       const pressed = new Set();
@@ -270,12 +304,12 @@
 
       function makeKeys() {
         const candidates = [
-          { x: 210, y: 1330, r: 12, got: false },
-          { x: 980, y: 180, r: 12, got: false },
-          { x: 1420, y: 1010, r: 12, got: false },
-          { x: 2150, y: 1260, r: 12, got: false },
-          { x: 1990, y: 220, r: 12, got: false },
-          { x: 640, y: 1320, r: 12, got: false }
+          { x: 210, y: 1330, r: 12, got: false, retryAt: 0, id: "k1" },
+          { x: 980, y: 180, r: 12, got: false, retryAt: 0, id: "k2" },
+          { x: 1420, y: 1010, r: 12, got: false, retryAt: 0, id: "k3" },
+          { x: 2150, y: 1260, r: 12, got: false, retryAt: 0, id: "k4" },
+          { x: 1990, y: 220, r: 12, got: false, retryAt: 0, id: "k5" },
+          { x: 640, y: 1320, r: 12, got: false, retryAt: 0, id: "k6" }
         ];
 
         world.keys = [];
@@ -288,7 +322,7 @@
           const x = 160 + Math.random() * (world.w - 320);
           const y = 160 + Math.random() * (world.h - 320);
           if (pointBlocked(x, y, 24)) continue;
-          world.keys.push({ x, y, r: 12, got: false });
+          world.keys.push({ x, y, r: 12, got: false, retryAt: 0, id: Math.random().toString(36).slice(2) });
         }
       }
 
@@ -331,29 +365,54 @@
         const cs = Math.floor((total % 1000) / 10);
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
       }
+      function closePuzzle(applyRetry = true) {
+        if (applyRetry && puzzleState.key) puzzleState.key.retryAt = performance.now() + 900;
+        puzzleState.active = false;
+        puzzleState.key = null;
+        puzzleState.sequence = [];
+        puzzleState.progress = 0;
+        puzzleOverlay.classList.remove('show');
+        pressed.clear();
+      }
 
-      function trySolveKeyPuzzle(keyObj) {
-        puzzleLock = true;
-        running = false;
-        const a = 2 + Math.floor(Math.random() * 8);
-        const b = 2 + Math.floor(Math.random() * 8);
-        const c = 1 + Math.floor(Math.random() * 6);
-        const answer = a * b - c;
-        const text = `隔離鍵の封印: ${a} × ${b} - ${c} = ?`;
-        const input = window.prompt(text);
+      function failPuzzle(cost = 10) {
+        player.sanity = Math.max(0, player.sanity - cost);
+        shake = Math.max(shake, 6);
+        closePuzzle(true);
+      }
 
-        if (input !== null && Number(input) === answer) {
-          keyObj.got = true;
-          player.collected++;
-          shake = 10;
-          spawnAdditionalGhost();
-        } else if (input !== null) {
-          player.sanity = Math.max(0, player.sanity - 18);
-          shake = 6;
-        }
+      function completePuzzle() {
+        if (!puzzleState.key) return;
+        puzzleState.key.got = true;
+        player.collected++;
+        shake = 10;
+        spawnAdditionalGhost();
+        closePuzzle(false);
+      }
 
-        running = true;
-        puzzleLock = false;
+      function openPuzzleForKey(keyObj) {
+        if (puzzleState.active || keyObj.got) return;
+        const symbols = ['▲', '●', '◆', '■'];
+        const sequence = Array.from({ length: 5 }, () => symbols[Math.floor(Math.random() * symbols.length)]);
+        const shuffled = [...symbols].sort(() => Math.random() - 0.5);
+
+        puzzleState.active = true;
+        puzzleState.key = keyObj;
+        puzzleState.sequence = sequence;
+        puzzleState.progress = 0;
+        puzzleState.endAt = performance.now() + 8000;
+
+        puzzleSeqEl.textContent = sequence.join(' ');
+        puzzleChoicesEl.innerHTML = '';
+        shuffled.forEach((sym) => {
+          const btn = document.createElement('button');
+          btn.textContent = sym;
+          btn.dataset.sym = sym;
+          puzzleChoicesEl.appendChild(btn);
+        });
+        puzzleProgressEl.textContent = `0 / ${sequence.length}`;
+        puzzleOverlay.classList.add('show');
+        pressed.clear();
       }
 
       initGhosts();
@@ -433,7 +492,7 @@
       }
 
       function update(dt) {
-        if (!running || gameOver || win || puzzleLock) return;
+        if (!running || gameOver || win) return;
 
         time += dt;
         const moveX = (pressed.has('d') || pressed.has('arrowright') ? 1 : 0)
@@ -477,10 +536,17 @@
         }
 
         for (const k of world.keys) {
-          if (!k.got && distance(player, k) < player.r + k.r + 3) {
-            trySolveKeyPuzzle(k);
+          if (!k.got && !puzzleState.active && performance.now() >= (k.retryAt || 0)
+            && distance(player, k) < player.r + k.r + 3) {
+            openPuzzleForKey(k);
             break;
           }
+        }
+
+        if (puzzleState.active) {
+          const remain = Math.max(0, puzzleState.endAt - performance.now());
+          puzzleTimeEl.textContent = `${(remain / 1000).toFixed(1)}s`;
+          if (remain <= 0) failPuzzle(12);
         }
 
         const touchGhost = ghosts.some((g) => distance(player, g) < player.r + g.r + 4);
@@ -538,7 +604,7 @@
         gameOver = false;
         win = false;
         running = true;
-        puzzleLock = false;
+        closePuzzle(false);
         timerStartedAt = performance.now();
         overlay.classList.remove('show');
       }
@@ -704,8 +770,28 @@
           showTimer = !showTimer;
           timerWrapEl.style.display = showTimer ? 'block' : 'none';
         }
+        if (e.key.toLowerCase() === 'escape' && puzzleState.active) {
+          failPuzzle(6);
+        }
       });
       window.addEventListener('keyup', (e) => pressed.delete(e.key.toLowerCase()));
+
+      puzzleChoicesEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-sym]');
+        if (!btn || !puzzleState.active) return;
+        const expected = puzzleState.sequence[puzzleState.progress];
+        if (btn.dataset.sym === expected) {
+          puzzleState.progress++;
+          puzzleProgressEl.textContent = `${puzzleState.progress} / ${puzzleState.sequence.length}`;
+          if (puzzleState.progress >= puzzleState.sequence.length) completePuzzle();
+        } else {
+          failPuzzle(14);
+        }
+      });
+
+      puzzleCancelBtn.addEventListener('click', () => {
+        if (puzzleState.active) failPuzzle(6);
+      });
 
       startBtn.addEventListener('click', () => {
         overlay.classList.remove('show');
