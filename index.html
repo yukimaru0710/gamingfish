@@ -508,10 +508,16 @@
 
         if (sprinting) {
           player.sanity -= 19 * dt;
-          for (const g of ghosts) g.rage = Math.min(1, g.rage + dt * 1.15);
         } else {
           player.sanity += 6 * dt;
-          for (const g of ghosts) g.rage = Math.max(0, g.rage - dt * 0.22);
+        }
+
+        // Ghost speed no longer depends on Shift sprint input.
+        // Rage rises only when ghosts are close to the player, then naturally decays.
+        for (const g of ghosts) {
+          const near = distance(player, g) < 320;
+          if (near) g.rage = Math.min(1, g.rage + dt * 0.55);
+          else g.rage = Math.max(0, g.rage - dt * 0.22);
         }
 
         let sawAny = false;
